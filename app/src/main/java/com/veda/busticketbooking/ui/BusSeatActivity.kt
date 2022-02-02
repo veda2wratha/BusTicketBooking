@@ -1,27 +1,25 @@
 package com.veda.busticketbooking.ui
 
-import android.app.AlarmManager
 import android.app.DatePickerDialog
-import android.app.PendingIntent
 import android.app.TimePickerDialog
-import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import android.text.format.DateFormat
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.GridLayoutManager
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.textfield.TextInputEditText
 import com.veda.busticketbooking.R
-import com.veda.busticketbooking.broadcasts.BusSeatNotificationReceiver
 import com.veda.busticketbooking.databinding.ActivityBusSeatBinding
 import com.veda.busticketbooking.db.entities.BusSeatEntity
+import com.veda.busticketbooking.utils.MyUtils
+import com.veda.busticketbooking.utils.MyUtils.Companion.SEAT_AVAILABLE
+import com.veda.busticketbooking.utils.MyUtils.Companion.SEAT_COUNT_PER_COLUMN
+import com.veda.busticketbooking.utils.MyUtils.Companion.SEAT_NOT_AVAILABLE
+import com.veda.busticketbooking.utils.MyUtils.Companion.SEAT_SELECTED
 import dagger.hilt.android.AndroidEntryPoint
-import java.text.ParsePosition
 import java.util.*
 
 
@@ -35,8 +33,6 @@ class BusSeatActivity : AppCompatActivity(), ItemClickListener, DatePickerDialog
     private lateinit var date :TextView
     private lateinit var time :TextView
     private lateinit var reminder : TextInputEditText
-
-    private val ALARM_REQUEST_CODE = 1000
 
     var day = 0
     var month: Int = 0
@@ -60,37 +56,36 @@ class BusSeatActivity : AppCompatActivity(), ItemClickListener, DatePickerDialog
 
         binding.progressBar.visibility = View.VISIBLE
 
-        // Adding data to loacl DB
+        // Adding data to local DB
         viewModel.insertBusSeats()
         initVM()
     }
 
         private fun initVM() {
-            viewModel.getRecordsObserver().observe(this, object : Observer<List<BusSeatEntity>> {
-                override fun onChanged(t: List<BusSeatEntity>?) {
-                    if (t != null) {
-                        setRoomListAdapter(t)
-                    }
+            viewModel.getRecordsObserver().observe(this
+            ) { t ->
+                if (t != null) {
+                    setRoomListAdapter(t)
                 }
-            })
+            }
         }
 
     private fun setRoomListAdapter(dataSet: List<BusSeatEntity>) {
         adapter = SeatListAdapter(dataSet, this)
-        binding.recycler.layoutManager = GridLayoutManager(this, 3)
+        binding.recycler.layoutManager = GridLayoutManager(this, SEAT_COUNT_PER_COLUMN)
         binding.recycler.adapter = adapter
         binding.progressBar.visibility = View.GONE
     }
 
     override fun onItemClick(seat: BusSeatEntity, position: Int) {
-        if(seat.seatStatus.equals("0")){
-            Toast.makeText(this, "Seat not available", Toast.LENGTH_SHORT).show()
+        if(seat.seatStatus.equals(MyUtils.SEAT_NOT_AVAILABLE)){
+            Toast.makeText(this, getString(R.string.seat_not_available), Toast.LENGTH_SHORT).show()
         }else{
             seat.let {
-                if (it.seatStatus.equals("1")) {
-                    it.seatStatus = "2"
-                } else if (it.seatStatus.equals("2")) {
-                    it.seatStatus = "1"
+                if (it.seatStatus.equals(SEAT_AVAILABLE)) {
+                    it.seatStatus = SEAT_SELECTED
+                } else if (it.seatStatus.equals(SEAT_SELECTED)) {
+                    it.seatStatus = SEAT_AVAILABLE
                 }
                 viewModel.updateBusSeat(seat)
                 adapter.notifyItemChanged(position)
@@ -103,7 +98,7 @@ class BusSeatActivity : AppCompatActivity(), ItemClickListener, DatePickerDialog
 
     fun showPersonDetailsBottomSheet(seat:BusSeatEntity, position : Int){
 
-        val dialog = this?.let { BottomSheetDialog(it) }
+        val dialog = this.let { BottomSheetDialog(it) }
 
         val view = layoutInflater.inflate(R.layout.layout_seat_book, null)
 
@@ -127,17 +122,24 @@ class BusSeatActivity : AppCompatActivity(), ItemClickListener, DatePickerDialog
 
         btnConfirm.setOnClickListener {
             seat.let {
-                if(it.seatStatus.equals("2")){
-                    it.seatStatus = "0"
+                if(it.seatStatus.equals(SEAT_SELECTED)){
+                    it.seatStatus = SEAT_NOT_AVAILABLE
                     it.dateOfBooking = "$myYear/$myMonth/$myDay"
                     it.timeOfBooking = "$myHour:$myMinute"
                     it.remindBefore = reminder.text.toString()
+
+                    // updating seat status
                     viewModel.updateBusSeat(seat)
                     adapter.notifyItemChanged(position)
                 }
-                setReminder(it)
+
+                // Creating calendar instance for notification
+                val calendar = Calendar.getInstance().apply {
+                    set(myYear,myMonth,myDay,myHour,myMinute- it.remindBefore.toInt(),0)
+                }
+                viewModel.setReminder(it, calendar)
             }
-            dialog?.dismiss()
+            dialog.dismiss()
         }
 
         btnCancel.setOnClickListener {
@@ -155,29 +157,6 @@ class BusSeatActivity : AppCompatActivity(), ItemClickListener, DatePickerDialog
         dialog.setContentView(view)
 
         dialog.show()
-    }
-
-    private fun setReminder(it: BusSeatEntity) {
-        val myMin = myMinute- it.remindBefore.toInt();
-
-        val calendar = Calendar.getInstance().apply {
-            set(myYear,myMonth,myDay,myHour,myMin,0)
-        }
-
-        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(this, BusSeatNotificationReceiver::class.java)
-        intent.putExtra("bus_date",it.dateOfBooking)
-        intent.putExtra("bus_time",it.timeOfBooking)
-        val pendingIntent = PendingIntent.getBroadcast(this, ALARM_REQUEST_CODE,
-            intent, PendingIntent.FLAG_UPDATE_CURRENT)
-
-        alarmManager.setInexactRepeating(
-            AlarmManager.RTC_WAKEUP,
-            calendar.timeInMillis,
-            AlarmManager.INTERVAL_DAY,
-            pendingIntent
-        )
-        Toast.makeText(this, "Booking Successful, Will Remind you before ${it.remindBefore} minute", Toast.LENGTH_SHORT).show();
     }
 
     override fun onDateSet(view: DatePicker?, year: Int, month: Int, dayOfMonth: Int) {

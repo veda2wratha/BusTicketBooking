@@ -16,6 +16,10 @@ object AppModule {
 
     @Singleton
     @Provides
+    fun provideContext(application: Application): Context = application.applicationContext
+
+    @Singleton
+    @Provides
     fun getAppDB(context: Application): AppDatabase {
         return AppDatabase.getAppDB(context)
     }
