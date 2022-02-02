@@ -1,7 +1,11 @@
 package com.veda.busticketbooking.ui
 
+import android.app.AlarmManager
 import android.app.DatePickerDialog
+import android.app.PendingIntent
 import android.app.TimePickerDialog
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.text.format.DateFormat
 import android.view.View
@@ -13,6 +17,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.textfield.TextInputEditText
 import com.veda.busticketbooking.R
+import com.veda.busticketbooking.broadcasts.BusSeatNotificationReceiver
 import com.veda.busticketbooking.databinding.ActivityBusSeatBinding
 import com.veda.busticketbooking.db.entities.BusSeatEntity
 import dagger.hilt.android.AndroidEntryPoint
@@ -30,6 +35,8 @@ class BusSeatActivity : AppCompatActivity(), ItemClickListener, DatePickerDialog
     private lateinit var date :TextView
     private lateinit var time :TextView
     private lateinit var reminder : TextInputEditText
+
+    private val ALARM_REQUEST_CODE = 1000
 
     var day = 0
     var month: Int = 0
@@ -128,6 +135,7 @@ class BusSeatActivity : AppCompatActivity(), ItemClickListener, DatePickerDialog
                     viewModel.updateBusSeat(seat)
                     adapter.notifyItemChanged(position)
                 }
+                setReminder(it)
             }
             dialog?.dismiss()
         }
@@ -147,6 +155,29 @@ class BusSeatActivity : AppCompatActivity(), ItemClickListener, DatePickerDialog
         dialog.setContentView(view)
 
         dialog.show()
+    }
+
+    private fun setReminder(it: BusSeatEntity) {
+        val myMin = myMinute- it.remindBefore.toInt();
+
+        val calendar = Calendar.getInstance().apply {
+            set(myYear,myMonth,myDay,myHour,myMin,0)
+        }
+
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(this, BusSeatNotificationReceiver::class.java)
+        intent.putExtra("bus_date",it.dateOfBooking)
+        intent.putExtra("bus_time",it.timeOfBooking)
+        val pendingIntent = PendingIntent.getBroadcast(this, ALARM_REQUEST_CODE,
+            intent, PendingIntent.FLAG_UPDATE_CURRENT)
+
+        alarmManager.setInexactRepeating(
+            AlarmManager.RTC_WAKEUP,
+            calendar.timeInMillis,
+            AlarmManager.INTERVAL_DAY,
+            pendingIntent
+        )
+        Toast.makeText(this, "Booking Successful, Will Remind you before ${it.remindBefore} minute", Toast.LENGTH_SHORT).show();
     }
 
     override fun onDateSet(view: DatePicker?, year: Int, month: Int, dayOfMonth: Int) {
